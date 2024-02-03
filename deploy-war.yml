@@ -1,0 +1,55 @@
+---
+- name: Deploy WAR file to Tomcat server
+  hosts: build_servers
+  become: true
+  vars:
+    tomcat_version: "10.1.18"
+    tomcat_home: "/opt/tomcat/{{ tomcat_version }}"
+    tomcat_webapp_path: "{{ tomcat_home }}/webapps"
+    war_file_name: "my-java-project.war"  # Renamed WAR file for deployment
+    war_file_src: "/var/lib/jenkins/workspace/Java Project Build/target/my-java-project-1.0-SNAPSHOT.war"  # Path to the WAR file on Jenkins server
+
+  tasks:
+    - name: Ensure catalina.sh exists and is executable
+      become: true
+      become_user: tomcat
+      block:
+        - name: Check if catalina.sh exists
+          stat:
+            path: "{{ tomcat_home }}/bin/catalina.sh"
+          register: catalina_sh
+
+        - name: Set execute permission on catalina.sh
+          file:
+            path: "{{ tomcat_home }}/bin/catalina.sh"
+            mode: '0755'
+          when: catalina_sh.stat.exists
+
+    - name: Stop Tomcat
+      command: "{{ tomcat_home }}/bin/shutdown.sh"
+      become: true
+      become_user: tomcat
+
+    - name: Wait for Tomcat to stop
+      wait_for:
+        path: "{{ tomcat_home }}/logs/catalina.out"
+        search_regex: "Destroying ProtocolHandler"
+        delay: 5
+        timeout: 120
+
+    - name: Copy WAR file to Tomcat webapps directory
+      copy:
+        src: "/var/lib/jenkins/workspace/Java Project Build/target/my-java-project-1.0-SNAPSHOT.war"
+        dest: "{{ tomcat_webapp_path }}/{{ war_file_name }}"
+        remote_src: no
+
+    - name: Ensure Tomcat startup script is executable  # Add this task here
+      file:
+        path: "{{ tomcat_home }}/bin/startup.sh"
+        mode: 'u+x'
+      become: true
+
+    - name: Start Tomcat
+      command: "{{ tomcat_home }}/bin/startup.sh"
+      become: true
+      become_user: tomcat
